@@ -17,5 +17,8 @@
   "bugs": {
     "url": "https://github.com/NathanKlump/golf-booking-scraper/issues"
   },
-  "homepage": "https://github.com/NathanKlump/golf-booking-scraper#readme"
+  "homepage": "https://github.com/NathanKlump/golf-booking-scraper#readme",
+  "dependencies": {
+    "playwright": "^1.60.0"
+  }
 }
