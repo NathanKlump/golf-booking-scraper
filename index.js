@@ -18,7 +18,8 @@ const fs = require("fs");
 const SLUG = process.argv[2] || "rochester-hills-mi";
 const TARGET_URL = `https://book.b9.golf/f?slug=${SLUG}&bookings=1`;
 const TODAY = new Date().toISOString().split("T")[0];
-const OUTPUT_FILE = `bookings-${TODAY}.json`;
+const OUTPUT_DIR = "logs";
+const OUTPUT_FILE = `${OUTPUT_DIR}/bookings-${TODAY}.json`;
 
 function log(...args) {
   const msg = args.map((a) => (typeof a === "object" ? JSON.stringify(a) : String(a))).join(" ");
@@ -128,6 +129,7 @@ function log(...args) {
   };
 
   const json = JSON.stringify(output, null, 2);
+  if (!fs.existsSync(OUTPUT_DIR)) fs.mkdirSync(OUTPUT_DIR);
   fs.writeFileSync(OUTPUT_FILE, json, "utf-8");
 
   log(`\nDone! Bookings saved to: ${OUTPUT_FILE}`);
