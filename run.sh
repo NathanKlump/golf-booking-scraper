@@ -3,7 +3,7 @@ set -euo pipefail
 
 IMAGE="golf-booking-scraper"
 
-sudo podman build -t "$IMAGE" -f Dockerfile .
+sudo podman build --network=host -t "$IMAGE" -f Dockerfile .
 
 mkdir -p logs
 
