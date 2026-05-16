@@ -17,15 +17,12 @@ const fs = require("fs");
 
 const SLUG = process.argv[2] || "rochester-hills-mi";
 const TARGET_URL = `https://book.b9.golf/f?slug=${SLUG}&bookings=1`;
-const OUTPUT_FILE = "bookings.json";
-const LOG_FILE = "scrape.log";
+const TODAY = new Date().toISOString().split("T")[0];
+const OUTPUT_FILE = `bookings-${TODAY}.json`;
 
-const logStream = fs.createWriteStream(LOG_FILE, { flags: "a" });
 function log(...args) {
   const msg = args.map((a) => (typeof a === "object" ? JSON.stringify(a) : String(a))).join(" ");
-  const line = `${new Date().toISOString()} ${msg}`;
-  logStream.write(line + "\n");
-  console.log(line);
+  console.log(`${new Date().toISOString()} ${msg}`);
 }
 
 (async () => {
@@ -139,5 +136,4 @@ function log(...args) {
   log(json);
 
   await browser.close();
-  logStream.end();
 })();
