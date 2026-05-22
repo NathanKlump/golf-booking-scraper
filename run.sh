@@ -1,12 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+cd "$(dirname "$0")"
+
 IMAGE="golf-booking-scraper"
 
-sudo podman build --network=host -t "$IMAGE" -f Dockerfile .
+podman build --network=host -t "$IMAGE" -f Dockerfile .
+podman run --rm --network=host -v "$(pwd)/logs:/app/logs:Z" "$IMAGE" "$@"
 
-mkdir -p logs
 
-sudo podman run --rm \
-  -v "$(pwd)/logs:/app/logs:Z" \
-  "$IMAGE" "$@"
