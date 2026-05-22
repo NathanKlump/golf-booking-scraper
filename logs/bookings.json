@@ -1,0 +1,42 @@
+{
+  "days": [
+    {
+      "slug": "rochester-hills-mi",
+      "url": "https://book.b9.golf/f?slug=rochester-hills-mi&bookings=1",
+      "date": "2026-05-22",
+      "scrapedAt": "2026-05-22T02:16:30.352Z",
+      "bookings": [
+        {
+          "date": "2026-05-21",
+          "startTime": "5:00",
+          "endTime": "8:00",
+          "bay": 2
+        },
+        {
+          "date": "2026-05-21",
+          "startTime": "6:00",
+          "endTime": "8:00",
+          "bay": 3
+        },
+        {
+          "date": "2026-05-21",
+          "startTime": "8:00",
+          "endTime": "11:00",
+          "bay": 2
+        },
+        {
+          "date": "2026-05-22",
+          "startTime": "5:30",
+          "endTime": "7:30",
+          "bay": 2
+        },
+        {
+          "date": "2026-05-23",
+          "startTime": "7:30",
+          "endTime": "9:30",
+          "bay": 3
+        }
+      ]
+    }
+  ]
+}
