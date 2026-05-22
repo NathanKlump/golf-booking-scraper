@@ -43,86 +43,97 @@ function log(...args) {
     if (msg.type() === "error") log("[page error]", msg.text());
   });
 
-  log(`Navigating to ${TARGET_URL} ...`);
-  await page.goto(TARGET_URL, {
-    waitUntil: "networkidle",
-    timeout: 30_000,
-  });
-  await page.waitForTimeout(2000);
+  const MAX_RETRIES = 3;
+  let bookings;
 
-  // Extract events directly from the rendered FullCalendar DOM
-  const bookings = await page.evaluate(() => {
-    const results = [];
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    log(`Navigating to ${TARGET_URL} (attempt ${attempt}/${MAX_RETRIES})...`);
+    try {
+      await page.goto(TARGET_URL, {
+        waitUntil: "load",
+        timeout: 30_000,
+      });
+    } catch (err) {
+      log(`Navigation error: ${err.message}`);
+      if (attempt === MAX_RETRIES) throw err;
+      continue;
+    }
 
-    // Each day column has a data-date attribute
-    const dayCols = document.querySelectorAll(".fc-timegrid-col[data-date]");
+    try {
+      await page.waitForSelector(".fc-timegrid-col[data-date]", { timeout: 15000 });
+    } catch {
+      log("Warning: calendar columns did not appear within 15s");
+    }
 
-    dayCols.forEach((col) => {
-      const date = col.getAttribute("data-date");
+    bookings = await page.evaluate(() => {
+      const results = [];
 
-      // Each booked event harness within this day
-      const eventEls = col.querySelectorAll(".fc-timegrid-event");
+      const dayCols = document.querySelectorAll(".fc-timegrid-col[data-date]");
 
-      eventEls.forEach((el) => {
-        const timeEl = el.querySelector(".fc-event-time");
-        const titleEl = el.querySelector(".fc-event-title");
+      dayCols.forEach((col) => {
+        const date = col.getAttribute("data-date");
 
-        if (!timeEl || !titleEl) return;
+        const eventEls = col.querySelectorAll(".fc-timegrid-event");
 
-        const timeText = timeEl.textContent.trim();   // e.g. "3:00 - 5:00"
-        const titleText = titleEl.textContent.trim(); // e.g. "Booked - Bay 2"
+        eventEls.forEach((el) => {
+          const timeEl = el.querySelector(".fc-event-time");
+          const titleEl = el.querySelector(".fc-event-title");
 
-        // Skip background/unavailable blocks
-        if (titleText.toLowerCase().includes("unavailable")) return;
+          if (!timeEl || !titleEl) return;
 
-        // Parse bay from title
-        const bayMatch = titleText.match(/Bay\s+(\d+)/i);
-        const bay = bayMatch ? parseInt(bayMatch[1]) : null;
+          const timeText = timeEl.textContent.trim();
+          const titleText = titleEl.textContent.trim();
 
-        // Parse start/end times
-        const timeParts = timeText.match(/(\d+:\d+)\s*-\s*(\d+:\d+)/);
-        let startTime = null;
-        let endTime = null;
-        if (timeParts) {
-          startTime = timeParts[1];
-          endTime = timeParts[2];
-        }
+          if (titleText.toLowerCase().includes("unavailable")) return;
 
-        results.push({
-          date,
-          startTime,
-          endTime,
-          bay,
+          const bayMatch = titleText.match(/Bay\s+(\d+)/i);
+          const bay = bayMatch ? parseInt(bayMatch[1]) : null;
+
+          const timeParts = timeText.match(/(\d+:\d+)\s*-\s*(\d+:\d+)/);
+          let startTime = null;
+          let endTime = null;
+          if (timeParts) {
+            startTime = timeParts[1];
+            endTime = timeParts[2];
+          }
+
+          results.push({
+            date,
+            startTime,
+            endTime,
+            bay,
+          });
         });
       });
 
+      return results;
     });
 
-    return results;
-  });
+    if (bookings.length > 0) break;
+    log(`Found 0 bookings on attempt ${attempt}/${MAX_RETRIES}`);
+  }
 
-  // Build final output — append new day to accumulating file
+  // Build final output — append new bookings to accumulating file
   if (!fs.existsSync(OUTPUT_DIR)) fs.mkdirSync(OUTPUT_DIR);
 
-  let days = [];
+  let allBookings = [];
   if (fs.existsSync(OUTPUT_FILE)) {
     try {
       const existing = JSON.parse(fs.readFileSync(OUTPUT_FILE, "utf-8"));
-      if (existing && Array.isArray(existing.days)) days = existing.days;
+      if (Array.isArray(existing)) {
+        allBookings = existing;
+      } else if (existing && Array.isArray(existing.days)) {
+        allBookings = existing.days.flatMap((d) => d.bookings);
+      }
     } catch (e) {
       log(`Warning: could not parse existing ${OUTPUT_FILE}, starting fresh`);
     }
   }
 
-  days.push({
-    slug: SLUG,
-    url: TARGET_URL,
-    date: TODAY,
-    scrapedAt: new Date().toISOString(),
-    bookings,
-  });
+  const enrichedBookings = bookings.map((b) => ({ ...b, url: TARGET_URL }));
+  allBookings.push(...enrichedBookings);
 
-  const json = JSON.stringify({ days }, null, 2);
+  const json = JSON.stringify(allBookings, null, 2);
   fs.writeFileSync(OUTPUT_FILE, json, "utf-8");
 
   log(`\nDone! Bookings saved to: ${OUTPUT_FILE}`);
