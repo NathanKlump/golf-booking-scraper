@@ -19,7 +19,7 @@ const SLUG = process.argv[2] || "rochester-hills-mi";
 const TARGET_URL = `https://book.b9.golf/f?slug=${SLUG}&bookings=1`;
 const TODAY = new Date().toISOString().split("T")[0];
 const OUTPUT_DIR = "logs";
-const OUTPUT_FILE = `${OUTPUT_DIR}/bookings-${TODAY}.json`;
+const OUTPUT_FILE = `${OUTPUT_DIR}/bookings.json`;
 
 function log(...args) {
   const msg = args.map((a) => (typeof a === "object" ? JSON.stringify(a) : String(a))).join(" ");
@@ -93,43 +93,36 @@ function log(...args) {
           startTime,
           endTime,
           bay,
-          title: titleText,
-          status: "booked",
         });
       });
 
-      // Also capture unavailable/blocked ranges per day
-      const bgEvents = col.querySelectorAll(".fc-bg-event");
-      bgEvents.forEach((el) => {
-        const titleEl = el.querySelector(".fc-event-title");
-        if (!titleEl) return;
-        const titleText = titleEl.textContent.trim();
-        if (titleText.toLowerCase().includes("unavailable")) {
-          results.push({
-            date,
-            startTime: null,
-            endTime: null,
-            bay: null,
-            title: titleText,
-            status: "unavailable",
-          });
-        }
-      });
     });
 
     return results;
   });
 
-  // Build final output
-  const output = {
-    slug: SLUG,
-    scrapedAt: new Date().toISOString(),
-    url: TARGET_URL,
-    bookings,
-  };
-
-  const json = JSON.stringify(output, null, 2);
+  // Build final output — append new day to accumulating file
   if (!fs.existsSync(OUTPUT_DIR)) fs.mkdirSync(OUTPUT_DIR);
+
+  let days = [];
+  if (fs.existsSync(OUTPUT_FILE)) {
+    try {
+      const existing = JSON.parse(fs.readFileSync(OUTPUT_FILE, "utf-8"));
+      if (existing && Array.isArray(existing.days)) days = existing.days;
+    } catch (e) {
+      log(`Warning: could not parse existing ${OUTPUT_FILE}, starting fresh`);
+    }
+  }
+
+  days.push({
+    slug: SLUG,
+    url: TARGET_URL,
+    date: TODAY,
+    scrapedAt: new Date().toISOString(),
+    bookings,
+  });
+
+  const json = JSON.stringify({ days }, null, 2);
   fs.writeFileSync(OUTPUT_FILE, json, "utf-8");
 
   log(`\nDone! Bookings saved to: ${OUTPUT_FILE}`);
