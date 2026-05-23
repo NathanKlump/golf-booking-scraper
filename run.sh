@@ -5,8 +5,8 @@ cd "$(dirname "$0")"
 
 IMAGE="golf-booking-scraper"
 
-podman build --network=host -t "$IMAGE" -f Dockerfile .
-podman run --rm --network=host -v "$(pwd)/logs:/app/logs:Z" "$IMAGE" "$@"
+docker build --network=host -t "$IMAGE" -f Dockerfile .
+docker run --rm --network=host -v "$(pwd)/logs:/app/logs" "$IMAGE" "$@"
 
 git add logs/
 git commit -m "bookings update $(date +'%Y-%m-%d')" || true
