@@ -1,97 +1,94 @@
-const { chromium } = require("playwright");
-
 function log(...args) {
   const msg = args.map((a) => (typeof a === "object" ? JSON.stringify(a) : String(a))).join(" ");
   console.log(`${new Date().toISOString()} [b9golf] ${msg}`);
 }
 
-async function scrapeB9Golf(slug) {
-  const TARGET_URL = `https://book.b9.golf/f?slug=${slug}&bookings=1`;
+async function getFranchiseId(slug) {
+  const url = `https://thebackninegolf.com/local/${slug}/bookings/`;
+  log(`Fetching booking page to extract franchise config...`);
+  const res = await fetch(url);
+  const html = await res.text();
 
-  log("Launching browser...");
-  const browser = await chromium.launch({ headless: true });
-  const context = await browser.newContext({
-    userAgent:
-      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) " +
-      "AppleWebKit/537.36 (KHTML, like Gecko) " +
-      "Chrome/124.0.0.0 Safari/537.36",
-    viewport: { width: 1280, height: 800 },
-  });
+  const idx = html.indexOf("window.viewJsVars = ");
+  if (idx === -1) throw new Error(`Could not find viewJsVars in ${url}`);
 
-  const page = await context.newPage();
-
-  page.on("console", (msg) => {
-    if (msg.type() === "error") log("[page error]", msg.text());
-  });
-
-  const MAX_RETRIES = 3;
-  let bookings;
-
-  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-    log(`Navigating to ${TARGET_URL} (attempt ${attempt}/${MAX_RETRIES})...`);
-    try {
-      await page.goto(TARGET_URL, {
-        waitUntil: "load",
-        timeout: 30_000,
-      });
-    } catch (err) {
-      log(`Navigation error: ${err.message}`);
-      if (attempt === MAX_RETRIES) throw err;
-      continue;
-    }
-
-    try {
-      await page.waitForSelector(".fc-timegrid-col[data-date]", { timeout: 15000 });
-    } catch {
-      log("Warning: calendar columns did not appear within 15s");
-    }
-
-    bookings = await page.evaluate(() => {
-      const results = [];
-      const dayCols = document.querySelectorAll(".fc-timegrid-col[data-date]");
-
-      dayCols.forEach((col) => {
-        const date = col.getAttribute("data-date");
-        const eventEls = col.querySelectorAll(".fc-timegrid-event");
-
-        eventEls.forEach((el) => {
-          const timeEl = el.querySelector(".fc-event-time");
-          const titleEl = el.querySelector(".fc-event-title");
-
-          if (!timeEl || !titleEl) return;
-
-          const timeText = timeEl.textContent.trim();
-          const titleText = titleEl.textContent.trim();
-
-          if (titleText.toLowerCase().includes("unavailable")) return;
-
-          const bayMatch = titleText.match(/Bay\s+(\d+)/i);
-          const bay = bayMatch ? parseInt(bayMatch[1]) : null;
-
-          const timeParts = timeText.match(/(\d+:\d+)\s*-\s*(\d+:\d+)/);
-          let startTime = null;
-          let endTime = null;
-          if (timeParts) {
-            startTime = timeParts[1];
-            endTime = timeParts[2];
-          }
-
-          results.push({ date, startTime, endTime, bay });
-        });
-      });
-
-      return results;
-    });
-
-    if (bookings.length > 0) break;
-    log(`Found 0 bookings on attempt ${attempt}/${MAX_RETRIES}`);
+  const start = idx + "window.viewJsVars = ".length;
+  let depth = 0, inStr = false, esc = false, end = start;
+  for (let i = start; i < html.length; i++) {
+    const ch = html[i];
+    if (esc) { esc = false; continue; }
+    if (inStr) { if (ch === "\\") esc = true; else if (ch === '"') inStr = false; continue; }
+    if (ch === '"') { inStr = true; continue; }
+    if (ch === "{") depth++;
+    else if (ch === "}") { depth--; if (depth === 0) { end = i + 1; break; } }
   }
 
-  const enriched = bookings.map((b) => ({ ...b, url: TARGET_URL }));
+  const viewJsVars = JSON.parse(html.slice(start, end));
+  const franchiseId = viewJsVars.BOOKING_CONFIG?.franchiseId;
 
-  log(`Found ${enriched.length} entries`);
-  await browser.close();
-  return enriched;
+  if (!franchiseId) {
+    throw new Error(`Could not extract franchiseId from BOOKING_CONFIG in ${url}`);
+  }
+
+  log(`Found franchiseId: ${franchiseId}`);
+  return franchiseId;
+}
+
+async function fetchAvailability(slug, date, franchiseId) {
+  const url = `https://thebackninegolf.com/local/${slug}/bookings/fetch_availability`;
+  log(`Fetching availability from API...`);
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Requested-With": "XMLHttpRequest",
+    },
+    body: JSON.stringify({
+      date,
+      franchise_id: franchiseId,
+      booking_type: "booking",
+    }),
+  });
+  return res.json();
+}
+
+async function scrapeB9Golf(slug) {
+  const today = new Date().toISOString().split("T")[0];
+
+  const franchiseId = await getFranchiseId(slug);
+  const data = await fetchAvailability(slug, today, franchiseId);
+
+  if (data.error || !data.data || !data.data.available) {
+    log(`No availability data found`);
+    return [];
+  }
+
+  const { bays, available } = data.data;
+
+  const baysById = Object.fromEntries(
+    bays.map((b) => [String(b.id), b.title])
+  );
+
+  function formatTime(iso) {
+    const m = iso.match(/T(\d+):(\d+)/);
+    return m ? `${parseInt(m[1])}:${m[2]}` : null;
+  }
+
+  function parseBay(title) {
+    const m = title?.match(/(\d+)/);
+    return m ? parseInt(m[1]) : null;
+  }
+
+  const bookings = available.map((slot) => ({
+    date: slot.start.slice(0, 10),
+    startTime: formatTime(slot.start),
+    endTime: formatTime(slot.end),
+    bay: parseBay(baysById[slot.resourceId]),
+    url: `https://book.b9.golf/f?slug=${slug}&bookings=1`,
+  }));
+
+  log(`Found ${bookings.length} available slots`);
+  return bookings;
 }
 
 module.exports = { scrapeB9Golf };
