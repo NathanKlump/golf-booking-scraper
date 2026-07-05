@@ -42,11 +42,21 @@ function log(...args) {
     }
   }
 
+  const deduped = [];
+  const seen = new Set();
+  for (const b of allBookings) {
+    const key = `${b.date}|${b.startTime}|${b.endTime}|${b.bay}`;
+    if (!seen.has(key)) {
+      seen.add(key);
+      deduped.push(b);
+    }
+  }
+
   if (!fs.existsSync(OUTPUT_DIR)) fs.mkdirSync(OUTPUT_DIR);
 
-  const json = JSON.stringify(allBookings, null, 2);
+  const json = JSON.stringify(deduped, null, 2);
   fs.writeFileSync(OUTPUT_FILE, json, "utf-8");
 
   log(`\nDone! Bookings saved to: ${OUTPUT_FILE}`);
-  log(`   Total entries: ${allBookings.length}`);
+  log(`   Total entries: ${deduped.length}`);
 })();
