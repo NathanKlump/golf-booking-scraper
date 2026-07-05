@@ -3,8 +3,8 @@ function log(...args) {
   console.log(`${new Date().toISOString()} [b9golf] ${msg}`);
 }
 
-async function getFranchiseId(slug) {
-  const url = `https://thebackninegolf.com/local/${slug}/bookings/`;
+async function fetchBookingConfig(slug) {
+  const url = `https://thebackninegolf.com/local/rochester-hills-mi/bookings/`;
   log(`Fetching booking page to extract franchise config...`);
   const res = await fetch(url);
   const html = await res.text();
@@ -24,18 +24,18 @@ async function getFranchiseId(slug) {
   }
 
   const viewJsVars = JSON.parse(html.slice(start, end));
-  const franchiseId = viewJsVars.BOOKING_CONFIG?.franchiseId;
+  const config = viewJsVars.BOOKING_CONFIG;
 
-  if (!franchiseId) {
+  if (!config?.franchiseId) {
     throw new Error(`Could not extract franchiseId from BOOKING_CONFIG in ${url}`);
   }
 
-  log(`Found franchiseId: ${franchiseId}`);
-  return franchiseId;
+  log(`Found franchiseId: ${config.franchiseId}`);
+  return config;
 }
 
 async function fetchAvailability(slug, date, franchiseId) {
-  const url = `https://thebackninegolf.com/local/${slug}/bookings/fetch_availability`;
+  const url = `https://thebackninegolf.com/local/rochester-hills-mi/bookings/fetch_availability`;
   log(`Fetching availability from API...`);
   const res = await fetch(url, {
     method: "POST",
@@ -52,42 +52,44 @@ async function fetchAvailability(slug, date, franchiseId) {
   return res.json();
 }
 
+function formatTime(iso) {
+  const m = iso.match(/T(\d+):(\d+)/);
+  return m ? `${String(parseInt(m[1])).padStart(2, "0")}:${m[2]}` : null;
+}
+
+function parseBay(title) {
+  const m = title?.match(/(\d+)/);
+  return m ? parseInt(m[1]) : null;
+}
+
 async function scrapeB9Golf(slug) {
   const today = new Date().toISOString().split("T")[0];
 
-  const franchiseId = await getFranchiseId(slug);
+  const config = await fetchBookingConfig(slug);
+  const { franchiseId } = config;
+
   const data = await fetchAvailability(slug, today, franchiseId);
 
-  if (data.error || !data.data || !data.data.available) {
-    log(`No availability data found`);
+  if (data.error || !data.data || !data.data.booked) {
+    log(`No booked data found`);
     return [];
   }
 
-  const { bays, available } = data.data;
+  const { bays, booked } = data.data;
 
   const baysById = Object.fromEntries(
     bays.map((b) => [String(b.id), b.title])
   );
 
-  function formatTime(iso) {
-    const m = iso.match(/T(\d+):(\d+)/);
-    return m ? `${parseInt(m[1])}:${m[2]}` : null;
-  }
-
-  function parseBay(title) {
-    const m = title?.match(/(\d+)/);
-    return m ? parseInt(m[1]) : null;
-  }
-
-  const bookings = available.map((slot) => ({
-    date: slot.start.slice(0, 10),
+  const bookings = booked.map((slot) => ({
+    date: today,
     startTime: formatTime(slot.start),
     endTime: formatTime(slot.end),
     bay: parseBay(baysById[slot.resourceId]),
     url: `https://book.b9.golf/f?slug=${slug}&bookings=1`,
   }));
 
-  log(`Found ${bookings.length} available slots`);
+  log(`Found ${bookings.length} booked slots`);
   return bookings;
 }
 
